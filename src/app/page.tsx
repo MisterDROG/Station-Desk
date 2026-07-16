@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import ThemeToggle from "./theme-toggle";
 
 type Team = "crew" | "alien";
 type ZoneId = "bridge" | "ops" | "reactor" | "breach";
@@ -818,6 +819,8 @@ function UnitCard({
     cardClass = "rounded-2xl border border-slate-950 bg-white p-3 shadow-[0_12px_28px_rgba(15,23,42,0.16)] transition";
   }
 
+  cardClass = `${cardClass} unit-card`;
+
   let actionButton = null;
   let attackLabel = "Вне радиуса";
 
@@ -1300,7 +1303,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#f4f7fb,_#e7edf5_45%,_#d9e2ef)] px-3 py-4 text-slate-900 sm:px-5 lg:px-7">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#f4f7fb,_#e7edf5_45%,_#d9e2ef)] px-3 py-4 text-slate-900 sm:px-5 lg:px-7" data-theme-surface>
       <div className="mx-auto flex w-full max-w-[1560px] flex-col gap-4">
         <section className="rounded-[26px] border border-slate-200 bg-white/85 p-4 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur sm:p-5">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -1310,6 +1313,7 @@ export default function Home() {
                 <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Shift {shift}</span>
                 <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-mono text-[10px] text-slate-400">BOARD-{String(scenarioSeed).slice(-5)}</span>
                 <Link className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700 transition hover:bg-blue-100" href="/rules">Правила</Link>
+                <ThemeToggle />
               </div>
               <h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] text-slate-950 sm:text-4xl">Internal Defense Workflow</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Тактическая доска станции: сближай карточки, держи линию, лечи экипаж и ремонтируй корабль до конца смены.</p>

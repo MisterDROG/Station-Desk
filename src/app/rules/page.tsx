@@ -1,4 +1,5 @@
 import Link from "next/link";
+import ThemeToggle from "../theme-toggle";
 
 const stats = [
   ["HP", "здоровье карты; при 0 карта выбывает"],
@@ -27,14 +28,15 @@ const enemyRoles = [
 
 export default function RulesPage() {
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#f8fafc,_#e7edf5_48%,_#d9e2ef)] px-3 py-4 text-slate-900 sm:px-5 lg:px-7">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#f8fafc,_#e7edf5_48%,_#d9e2ef)] px-3 py-4 text-slate-900 sm:px-5 lg:px-7" data-theme-surface>
       <div className="mx-auto w-full max-w-[1180px]">
         <header className="rounded-[26px] border border-slate-200 bg-white/90 p-5 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur sm:p-7">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">Station Desk</span>
-                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700">Rules v0.8</span>
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700">Rules v0.9</span>
+                <ThemeToggle />
               </div>
               <h1 className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-slate-950 sm:text-5xl">Defense playbook</h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">Короткая рабочая инструкция по защите станции. Здесь зафиксированы актуальные правила доски.</p>
