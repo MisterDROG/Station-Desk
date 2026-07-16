@@ -18,6 +18,13 @@ const defenses = [
   ["HLBR", "3", "Внешняя броня принимает удар"],
 ];
 
+const enemyRoles = [
+  ["Охотник", "Быстрый боец ближнего контакта"],
+  ["Броневик", "Живучая цель с высокой бронёй"],
+  ["Стрелок", "Атакует экипаж с большой дистанции"],
+  ["Разрушитель", "Специалист по осаде корпуса"],
+];
+
 export default function RulesPage() {
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#f8fafc,_#e7edf5_48%,_#d9e2ef)] px-3 py-4 text-slate-900 sm:px-5 lg:px-7">
@@ -27,7 +34,7 @@ export default function RulesPage() {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">Station Desk</span>
-                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700">Rules v0.4</span>
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700">Rules v0.8</span>
               </div>
               <h1 className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-slate-950 sm:text-5xl">Defense playbook</h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">Короткая рабочая инструкция по защите станции. Здесь зафиксированы актуальные правила доски.</p>
@@ -46,6 +53,7 @@ export default function RulesPage() {
               <div className="rounded-2xl border border-cyan-200 bg-cyan-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-cyan-700">2 · MOVE</p><p className="mt-2 text-xs leading-5 text-cyan-900">Каждый герой один раз двигается. ACT и MOVE можно делать в любом порядке.</p></div>
               <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-rose-700">3 · SHIFT</p><p className="mt-2 text-xs leading-5 text-rose-900">После End shift все пришельцы двигаются и действуют по инициативе.</p></div>
             </div>
+            <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">Activity Feed хранит события текущей партии, показывает новые записи сверху и разделяет их по сменам. Смерть героя выделяется как критическое событие. New board полностью очищает журнал.</p>
           </section>
 
           <section className="rounded-[26px] border border-slate-200 bg-slate-950 p-5 text-white shadow-[0_16px_50px_rgba(15,23,42,0.15)] sm:p-6">
@@ -75,7 +83,7 @@ export default function RulesPage() {
               <p><strong className="text-slate-900">Атака:</strong> цель должна быть в пределах RNG. Урон равен ATK − ARM, минимум 1.</p>
               <p><strong className="text-slate-900">Лечение:</strong> нужен MED выше 0. Целевой герой должен быть ранен и стоять не дальше одной клетки.</p>
               <p><strong className="text-slate-900">Ремонт:</strong> нужен ENG выше 0. В Reactor и Hull Breach применяется полный ENG, в остальных отсеках — половина с округлением вверх.</p>
-              <p><strong className="text-slate-900">Вместимость:</strong> в одной клетке может находиться не более двух членов экипажа. Число пришельцев не ограничено.</p>
+              <p><strong className="text-slate-900">Вместимость:</strong> в одной клетке может находиться не более двух членов экипажа и не более двух пришельцев.</p>
             </div>
           </section>
 
@@ -99,7 +107,10 @@ export default function RulesPage() {
           <section className="rounded-[26px] border border-rose-200 bg-rose-50/90 p-5 shadow-[0_16px_50px_rgba(15,23,42,0.06)] sm:p-6">
             <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-rose-600">06 · Противник</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-rose-950">Пришельцы принимают решения</h2>
-            <p className="mt-3 text-sm leading-6 text-rose-900/75">В свой ход каждый пришелец анализирует все позиции в пределах SPD. Он может переместиться и атаковать, добивает раненых, охотится на медиков и инженеров и сравнивает ценность атаки героя с уроном по корпусу. Осадные организмы чаще выбирают корабль.</p>
+            <p className="mt-3 text-sm leading-6 text-rose-900/75">В свой ход каждый пришелец анализирует все позиции в пределах SPD. Он может переместиться и атаковать, добивает раненых, охотится на медиков и инженеров и сравнивает ценность атаки героя с уроном по корпусу. Разрушители чаще выбирают корабль.</p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {enemyRoles.map(([role, description]) => <div className="rounded-xl border border-rose-200 bg-rose-100 p-3 text-rose-900" key={role}><p className="text-[10px] font-bold uppercase tracking-[0.14em]">{role}</p><p className="mt-1 text-xs leading-5 opacity-80">{description}</p></div>)}
+            </div>
             <div className="mt-4 rounded-2xl border border-rose-200 bg-white/60 p-3 text-xs leading-5 text-rose-900/70">Состав, имена, характеристики и стартовые позиции обеих сторон генерируются заново кнопкой New board. В экипаже всегда остаются как минимум медик, инженер и стрелок.</div>
           </section>
         </div>

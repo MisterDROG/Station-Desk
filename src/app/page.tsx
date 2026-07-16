@@ -7,14 +7,15 @@ type Team = "crew" | "alien";
 type ZoneId = "bridge" | "ops" | "reactor" | "breach";
 type Rank = "front" | "rear";
 type CrewRole = "assault" | "medic" | "engineer" | "ranger" | "hybrid";
-type LogTone = "neutral" | "good" | "bad";
+type AlienRole = "hunter" | "tank" | "shooter" | "siege";
+type LogTone = "neutral" | "good" | "bad" | "critical";
 
 type Unit = {
   id: string;
   name: string;
   title: string;
   team: Team;
-  role: CrewRole | "invader";
+  role: CrewRole | AlienRole;
   zone: ZoneId;
   rank: Rank;
   hp: number;
@@ -37,8 +38,14 @@ type UnitTemplate = Omit<Unit, "id" | "name" | "zone" | "rank" | "team" | "hasAc
 
 type LogEntry = {
   id: number;
+  shift: number;
   text: string;
   tone: LogTone;
+};
+
+type LogGroup = {
+  shift: number;
+  entries: LogEntry[];
 };
 
 type Zone = {
@@ -106,18 +113,13 @@ const zones: Zone[] = [
   },
 ];
 
-const crewNames = [
-  "Ira Voss",
-  "Maks Eder",
-  "Rin Sol",
-  "Dima Korr",
-  "Tala Reed",
-  "Lev Orlan",
-  "Nika Vale",
-  "Artem Quill",
-  "Yana Holt",
-  "Oleg Kern",
-];
+const crewNames = ["Ira", "Maks", "Rin", "Dima", "Tala", "Lev", "Nika", "Artem", "Yana", "Oleg", "Mira", "Sava", "Kira", "Anton", "Lina", "Vadim", "Zoya", "Roman"]
+  .flatMap((firstName) => ["Voss", "Eder", "Sol", "Korr", "Reed", "Orlan", "Vale", "Quill", "Holt", "Kern", "Stern", "Rook", "Vega", "Morrow", "Drake", "Frost", "Lane", "Ward"]
+    .map((lastName) => `${firstName} ${lastName}`));
+
+function combineNameParts(prefixes: string[], forms: string[]) {
+  return prefixes.flatMap((prefix) => forms.map((form) => `${prefix} ${form}`));
+}
 
 const crewTemplates: Record<CrewRole, UnitTemplate> = {
   assault: {
@@ -199,9 +201,9 @@ const crewTemplates: Record<CrewRole, UnitTemplate> = {
 
 const alienTemplates: UnitTemplate[] = [
   {
-    names: ["Shard Drone", "Glass Raptor", "Needle Form"],
+    names: combineNameParts(["Shard", "Glass", "Needle", "Rift", "Void", "Razor"], ["Hunter", "Raptor", "Stalker", "Hound", "Claw", "Mantis"]),
     title: "Boarding Hunter",
-    role: "invader",
+    role: "hunter",
     hp: 7,
     maxHp: 7,
     attack: 4,
@@ -214,9 +216,9 @@ const alienTemplates: UnitTemplate[] = [
     initiative: 4,
   },
   {
-    names: ["Maw Seeder", "Spore Carrier", "Brood Anchor"],
+    names: combineNameParts(["Maw", "Spore", "Brood", "Bone", "Iron", "Shell"], ["Seeder", "Carrier", "Anchor", "Brute", "Crusher", "Bastion"]),
     title: "Armored Organism",
-    role: "invader",
+    role: "tank",
     hp: 11,
     maxHp: 11,
     attack: 3,
@@ -229,9 +231,9 @@ const alienTemplates: UnitTemplate[] = [
     initiative: 1,
   },
   {
-    names: ["Null Lancer", "Arc Stalker", "Pulse Leech"],
+    names: combineNameParts(["Null", "Arc", "Pulse", "Echo", "Prism", "Static"], ["Lancer", "Sniper", "Leech", "Spitter", "Caster", "Seer"]),
     title: "Ranged Intruder",
-    role: "invader",
+    role: "shooter",
     hp: 7,
     maxHp: 7,
     attack: 3,
@@ -244,9 +246,9 @@ const alienTemplates: UnitTemplate[] = [
     initiative: 3,
   },
   {
-    names: ["Siege Cyst", "Hull Eater", "Void Ram"],
+    names: combineNameParts(["Siege", "Hull", "Void", "Breach", "Core", "Rift"], ["Cyst", "Eater", "Ram", "Breaker", "Devourer", "Borer"]),
     title: "Siege Organism",
-    role: "invader",
+    role: "siege",
     hp: 9,
     maxHp: 9,
     attack: 2,
@@ -257,19 +259,6 @@ const alienTemplates: UnitTemplate[] = [
     siege: 6,
     speed: 1,
     initiative: 2,
-  },
-];
-
-const initialLog: LogEntry[] = [
-  {
-    id: 2,
-    text: "Новая доска создана: состав, характеристики и позиции обеих сторон сгенерированы заново.",
-    tone: "good",
-  },
-  {
-    id: 1,
-    text: "Пришельцы анализируют поле, двигаются по SPD и охотятся на ключевых специалистов.",
-    tone: "neutral",
   },
 ];
 
@@ -288,6 +277,13 @@ function createRandom(seed: number) {
 function pick<T>(items: T[], random: () => number) {
   const index = Math.floor(random() * items.length);
   return items[index];
+}
+
+function pickUnused(items: string[], usedItems: Set<string>, random: () => number) {
+  const availableItems = items.filter((item) => !usedItems.has(item));
+  const selectedItem = pick(availableItems, random);
+  usedItems.add(selectedItem);
+  return selectedItem;
 }
 
 function varyStat(value: number, random: () => number, minimum: number) {
@@ -319,6 +315,7 @@ function generateScenario(seed: number): Scenario {
   const roles: CrewRole[] = ["medic", "engineer", "ranger", pick(randomRoles, random), pick(randomRoles, random)];
   const crewPositions = shuffle(boardPositions, random);
   const availableNames = shuffle(crewNames, random);
+  const usedAlienNames = new Set<string>();
   const units: Unit[] = [];
 
   roles.forEach((role, index) => {
@@ -347,16 +344,20 @@ function generateScenario(seed: number): Scenario {
   });
 
   const alienCount = 5 + Math.floor(random() * 3);
+  const alienPositions = shuffle(
+    boardPositions.flatMap((position) => [{ ...position }, { ...position }]),
+    random,
+  );
 
   for (let index = 0; index < alienCount; index += 1) {
     const template = pick(alienTemplates, random);
     const maxHp = varyWideStat(template.maxHp, random, 5);
-    const position = pick(boardPositions, random);
+    const position = alienPositions[index];
 
     units.push({
       ...template,
       id: `alien-${seed}-${index}`,
-      name: pick(template.names, random),
+      name: pickUnused(template.names, usedAlienNames, random),
       team: "alien",
       zone: position.zone,
       rank: position.rank,
@@ -499,16 +500,24 @@ function getAlienHullScore(alien: Unit, hull: number, zone: ZoneId) {
     score += 180;
   }
 
-  if (alien.title === "Siege Organism") {
+  if (alien.role === "siege") {
     score += 20;
   }
 
   return score;
 }
 
-function getAlienTurn(alien: Unit, crew: Unit[], hull: number): AlienTurn {
+function getAlienTurn(alien: Unit, crew: Unit[], aliens: Unit[], hull: number): AlienTurn {
   const alienPosition: Position = { zone: alien.zone, rank: alien.rank };
-  const reachablePositions = boardPositions.filter((position) => getMovementDistance(alienPosition, position) <= alien.speed);
+  const reachablePositions = boardPositions.filter((position) => {
+    const occupants = aliens.filter((unit) => unit.id !== alien.id && unit.zone === position.zone && unit.rank === position.rank);
+
+    if (occupants.length >= 2) {
+      return false;
+    }
+
+    return getMovementDistance(alienPosition, position) <= alien.speed;
+  });
   let bestTurn: AlienTurn = {
     zone: alien.zone,
     rank: alien.rank,
@@ -585,6 +594,24 @@ function getNextLogId(log: LogEntry[]) {
   return log[0].id + 1;
 }
 
+function groupLogEntries(entries: LogEntry[]) {
+  const sortedEntries = [...entries].sort((left, right) => right.id - left.id);
+  const groups: LogGroup[] = [];
+
+  for (const entry of sortedEntries) {
+    const currentGroup = groups[groups.length - 1];
+
+    if (!currentGroup || currentGroup.shift !== entry.shift) {
+      groups.push({ shift: entry.shift, entries: [entry] });
+      continue;
+    }
+
+    currentGroup.entries.push(entry);
+  }
+
+  return groups;
+}
+
 function getToneClass(tone: LogTone) {
   if (tone === "good") {
     return "text-emerald-700";
@@ -594,7 +621,19 @@ function getToneClass(tone: LogTone) {
     return "text-rose-700";
   }
 
+  if (tone === "critical") {
+    return "font-semibold text-rose-900";
+  }
+
   return "text-slate-600";
+}
+
+function getLogEntryClass(tone: LogTone) {
+  if (tone === "critical") {
+    return "rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-xs leading-5 shadow-sm";
+  }
+
+  return "rounded-xl border border-slate-100 bg-slate-50 p-2.5 text-xs leading-5";
 }
 
 function getHealthClass(hp: number, maxHp: number) {
@@ -632,7 +671,19 @@ function getRoleLabel(role: Unit["role"]) {
     return "Гибрид";
   }
 
-  return "Угроза";
+  if (role === "hunter") {
+    return "Охотник";
+  }
+
+  if (role === "tank") {
+    return "Броневик";
+  }
+
+  if (role === "shooter") {
+    return "Стрелок";
+  }
+
+  return "Разрушитель";
 }
 
 function getRoleClass(role: Unit["role"]) {
@@ -648,8 +699,8 @@ function getRoleClass(role: Unit["role"]) {
     return "border-sky-200 bg-sky-50 text-sky-700";
   }
 
-  if (role === "invader") {
-    return "border-rose-200 bg-rose-50 text-rose-700";
+  if (role === "hunter" || role === "tank" || role === "shooter" || role === "siege") {
+    return "border-rose-300 bg-rose-50 text-rose-800";
   }
 
   return "border-slate-200 bg-slate-100 text-slate-600";
@@ -853,7 +904,7 @@ export default function Home() {
   const [shift, setShift] = useState(1);
   const [hull, setHull] = useState(MAX_HULL);
   const [scenarioSeed, setScenarioSeed] = useState(initialScenario.seed);
-  const [logEntries, setLogEntries] = useState<LogEntry[]>(initialLog);
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
 
   const crew = units.filter((unit) => unit.team === "crew" && unit.hp > 0);
   const aliens = units.filter((unit) => unit.team === "alien" && unit.hp > 0);
@@ -869,7 +920,7 @@ export default function Home() {
 
   function addLog(text: string, tone: LogTone) {
     setLogEntries((current) => {
-      const entry: LogEntry = { id: getNextLogId(current), text, tone };
+      const entry: LogEntry = { id: getNextLogId(current), shift, text, tone };
       return [entry, ...current].slice(0, 12);
     });
   }
@@ -1081,12 +1132,13 @@ export default function Home() {
       }
 
       const currentCrew = nextUnits.filter((unit) => unit.team === "crew" && unit.hp > 0);
+      const currentAliens = nextUnits.filter((unit) => unit.team === "alien" && unit.hp > 0);
 
       if (currentCrew.length === 0) {
         break;
       }
 
-      const turn = getAlienTurn(currentAlien, currentCrew, Math.max(0, hull - hullDamage));
+      const turn = getAlienTurn(currentAlien, currentCrew, currentAliens, Math.max(0, hull - hullDamage));
       const moved = turn.zone !== currentAlien.zone || turn.rank !== currentAlien.rank;
       nextUnits = nextUnits.map((unit) => {
         if (unit.id !== currentAlien.id) {
@@ -1119,10 +1171,22 @@ export default function Home() {
 
         messages.push({
           id: nextLogId,
+          shift,
           text: `${currentAlien.name}${movementText} наносит ${damage} урона по ${target.name}.`,
           tone: "bad",
         });
         nextLogId += 1;
+
+        if (target.hp - damage <= 0) {
+          messages.push({
+            id: nextLogId,
+            shift,
+            text: `${target.name} погибает. Экипаж потерял специалиста «${target.title}».`,
+            tone: "critical",
+          });
+          nextLogId += 1;
+        }
+
         continue;
       }
 
@@ -1138,6 +1202,7 @@ export default function Home() {
 
         messages.push({
           id: nextLogId,
+          shift,
           text: `${currentAlien.name}${movementText} атакует корабль: −${damage} к обшивке (защита ${defense}).`,
           tone: "bad",
         });
@@ -1147,6 +1212,7 @@ export default function Home() {
 
       messages.push({
         id: nextLogId,
+        shift,
         text: `${currentAlien.name} занимает выгодную позицию: ${getZoneName(turn.zone)} / ${getRankLabel(turn.rank)}.`,
         tone: "neutral",
       });
@@ -1179,7 +1245,7 @@ export default function Home() {
     setScenarioSeed(seed);
     setShift(1);
     setHull(MAX_HULL);
-    setLogEntries(initialLog);
+    setLogEntries([]);
 
     if (firstCrew) {
       setSelectedId(firstCrew.id);
@@ -1212,15 +1278,25 @@ export default function Home() {
   const totalRepair = crew.reduce((sum, unit) => sum + unit.repair, 0);
   const readyActions = crew.filter((unit) => !unit.hasActed).length;
   const readyMoves = crew.filter((unit) => !unit.hasMoved).length;
-  const visibleLogEntries = [...logEntries].sort((left, right) => right.id - left.id);
+  const logGroups = groupLogEntries(logEntries);
   let gameMessage = null;
 
   if (gameState === "won") {
-    gameMessage = <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">Все угрозы закрыты. Станция удержана.</div>;
+    gameMessage = (
+      <section className="flex flex-col gap-3 rounded-[22px] border border-emerald-300 bg-emerald-50 p-4 shadow-[0_12px_36px_rgba(5,150,105,0.12)] sm:flex-row sm:items-center sm:justify-between">
+        <div><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-600">Mission complete</p><p className="mt-1 text-base font-semibold text-emerald-950">Все угрозы закрыты. Станция удержана.</p></div>
+        <button className="w-fit rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-600" onClick={createNewBoard} type="button">Новая доска</button>
+      </section>
+    );
   }
 
   if (gameState === "lost") {
-    gameMessage = <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-800">Оборона сломана. Создай новую доску и попробуй иначе распределить роли.</div>;
+    gameMessage = (
+      <section className="flex flex-col gap-3 rounded-[22px] border border-rose-300 bg-rose-50 p-4 shadow-[0_12px_36px_rgba(225,29,72,0.12)] sm:flex-row sm:items-center sm:justify-between">
+        <div><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-rose-600">Mission failed</p><p className="mt-1 text-base font-semibold text-rose-950">Оборона сломана. Попробуй иначе распределить роли и позиции.</p></div>
+        <button className="w-fit rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-600" onClick={createNewBoard} type="button">Новая доска</button>
+      </section>
+    );
   }
 
   return (
@@ -1247,6 +1323,8 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {gameMessage}
 
         <div className="grid gap-4 xl:grid-cols-[290px_minmax(0,1fr)]">
           <aside className="space-y-4">
@@ -1275,22 +1353,26 @@ export default function Home() {
 
             <section className="rounded-[26px] border border-slate-200 bg-white/85 p-4 shadow-[0_16px_50px_rgba(15,23,42,0.07)] backdrop-blur">
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">Activity Feed</p>
-              <div className="mt-3 max-h-[430px] space-y-2 overflow-y-auto pr-1">
-                {visibleLogEntries.map((entry) => <div className="rounded-xl border border-slate-100 bg-slate-50 p-2.5 text-xs leading-5" key={entry.id}><p className={getToneClass(entry.tone)}>{entry.text}</p></div>)}
+              <div className="mt-3 max-h-[430px] space-y-4 overflow-y-auto pr-1">
+                {logGroups.map((group) => (
+                  <div key={group.shift}>
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.16em] text-slate-500">Смена {group.shift}</span>
+                      <span className="h-px flex-1 bg-slate-200" />
+                    </div>
+                    <div className="space-y-2">
+                      {group.entries.map((entry) => <div className={getLogEntryClass(entry.tone)} key={entry.id}><p className={getToneClass(entry.tone)}>{entry.text}</p></div>)}
+                    </div>
+                  </div>
+                ))}
+                {logGroups.length === 0 && <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-3 text-xs leading-5 text-slate-400">Журнал новой партии пуст. Первое действие появится здесь.</div>}
               </div>
             </section>
           </aside>
 
           <section className="min-w-0 rounded-[26px] border border-slate-200 bg-white/85 p-4 shadow-[0_16px_50px_rgba(15,23,42,0.07)] backdrop-blur">
-            <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="border-b border-slate-200 pb-4">
               <div><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">Board View · Core ← Boarding route</p><h2 className="mt-1 text-2xl font-semibold tracking-[-0.035em]">Station sectors</h2></div>
-              <p className="max-w-xl text-xs leading-5 text-slate-500">Каждый герой за смену: 1 рабочее действие и 1 движение · SPD задает дальность движения · RNG 1 бьет рядом · MED лечит рядом</p>
-            </div>
-
-            <div className="mt-3 grid gap-2 text-xs leading-5 text-slate-500 md:grid-cols-3">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"><span className="font-semibold text-slate-700">Передовая</span> принимает ближний контакт и быстрее достает цели в своем секторе.</div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"><span className="font-semibold text-slate-700">Тыл</span> доступен только через передовую своего отсека. Между отсеками тыловые линии не соединены.</div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"><span className="font-semibold text-slate-700">SPD</span> = длина маршрута. Быстрый герой может пройти передовую транзитом за одно движение.</div>
             </div>
 
             <div className="mt-4 overflow-x-auto pb-2">
@@ -1351,7 +1433,6 @@ export default function Home() {
                 ))}
               </div>
             </div>
-            {gameMessage}
           </section>
         </div>
       </div>
