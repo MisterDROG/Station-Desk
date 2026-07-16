@@ -444,6 +444,25 @@ function getDistanceFromPosition(position: Position, unit: Unit) {
   return zoneDistance + rankDistance;
 }
 
+function canAttackFromPosition(attacker: Unit, position: Position, target: Unit) {
+  if (target.rank === "rear" && attacker.range <= 1) {
+    if (position.rank !== "front") {
+      return false;
+    }
+
+    if (position.zone !== target.zone) {
+      return false;
+    }
+  }
+
+  return getDistanceFromPosition(position, target) <= attacker.range;
+}
+
+function canAttackUnit(attacker: Unit, target: Unit) {
+  const attackerPosition: Position = { zone: attacker.zone, rank: attacker.rank };
+  return canAttackFromPosition(attacker, attackerPosition, target);
+}
+
 function getZoneHullDefense(zoneId: ZoneId) {
   const zone = zones.find((item) => item.id === zoneId);
 
@@ -533,9 +552,7 @@ function getAlienTurn(alien: Unit, crew: Unit[], aliens: Unit[], hull: number): 
     let attacksHull = false;
 
     for (const target of crew) {
-      const distance = getDistanceFromPosition(position, target);
-
-      if (distance <= alien.range) {
+      if (canAttackFromPosition(alien, position, target)) {
         const attackScore = getAlienAttackScore(alien, target, hull);
 
         if (attackScore > positionScore) {
@@ -562,7 +579,13 @@ function getAlienTurn(alien: Unit, crew: Unit[], aliens: Unit[], hull: number): 
 
     if (positionScore === Number.NEGATIVE_INFINITY) {
       const targetApproachScores = crew.map((target) => {
-        const distance = getDistanceFromPosition(position, target);
+        let distance = getDistanceFromPosition(position, target);
+
+        if (target.rank === "rear" && alien.range <= 1) {
+          const attackPosition: Position = { zone: target.zone, rank: "front" };
+          distance = getMovementDistance(position, attackPosition);
+        }
+
         return getCrewTargetValue(target, hull) - distance * 12;
       });
       const bestTargetApproach = Math.max(...targetApproachScores);
@@ -733,21 +756,6 @@ function getRankHint(rank: Rank) {
   return "На шаг дальше от контакта: безопаснее для медиков, стрелков и инженеров.";
 }
 
-function getUnitTempoLabel(unit: Unit) {
-  let actionLabel = "ACT ready";
-  let moveLabel = "MOVE ready";
-
-  if (unit.hasActed) {
-    actionLabel = "ACT used";
-  }
-
-  if (unit.hasMoved) {
-    moveLabel = "MOVE used";
-  }
-
-  return `${actionLabel} · ${moveLabel}`;
-}
-
 function getActionStatusClass(unit: Unit) {
   if (unit.hasActed) {
     return "border-slate-200 bg-slate-100 text-slate-400";
@@ -797,17 +805,23 @@ function UnitCard({
   selected,
   canAttack,
   canHeal,
+  canRepair,
+  repairAmount,
   onSelect,
   onAttack,
   onHeal,
+  onRepair,
 }: {
   unit: Unit;
   selected: boolean;
   canAttack: boolean;
   canHeal: boolean;
+  canRepair: boolean;
+  repairAmount: number;
   onSelect: () => void;
   onAttack: () => void;
   onHeal: () => void;
+  onRepair: () => void;
 }) {
   let cardClass = "rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition";
 
@@ -822,21 +836,15 @@ function UnitCard({
   cardClass = `${cardClass} unit-card`;
 
   let actionButton = null;
-  let attackLabel = "Вне радиуса";
 
-  if (canAttack) {
-    attackLabel = "Атаковать";
-  }
-
-  if (unit.team === "alien") {
+  if (unit.team === "alien" && canAttack) {
     actionButton = (
       <button
-        className="mt-3 w-full rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-700 disabled:bg-slate-200 disabled:text-slate-400"
-        disabled={!canAttack}
+        className="mt-3 w-full rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-700"
         onClick={onAttack}
         type="button"
       >
-        {attackLabel}
+        Атаковать
       </button>
     );
   }
@@ -848,7 +856,7 @@ function UnitCard({
         onClick={onHeal}
         type="button"
       >
-        Лечить карту
+        Лечить
       </button>
     );
   }
@@ -897,6 +905,16 @@ function UnitCard({
         </div>
       </button>
       {actionButton}
+      {selected && unit.team === "crew" && unit.repair > 0 && (
+        <button
+          className="mt-2 w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+          disabled={!canRepair}
+          onClick={onRepair}
+          type="button"
+        >
+          Ремонт +{repairAmount}
+        </button>
+      )}
     </div>
   );
 }
@@ -1034,7 +1052,12 @@ export default function Home() {
 
     const target = aliens.find((unit) => unit.id === targetId);
 
-    if (!target || getDistance(selectedUnit, target) > selectedUnit.range) {
+    if (target && target.rank === "rear" && selectedUnit.range <= 1 && !canAttackUnit(selectedUnit, target)) {
+      addLog("С RNG 1 тыл можно атаковать только с передовой того же отсека. Из соседнего тыла нужен RNG 2.", "bad");
+      return;
+    }
+
+    if (!target || !canAttackUnit(selectedUnit, target)) {
       addLog("Цель находится вне радиуса выбранной карты.", "bad");
       return;
     }
@@ -1093,15 +1116,27 @@ export default function Home() {
     addLog(`${selectedUnit.name} восстанавливает ${healed} HP у ${target.name}.`, "good");
   }
 
-  function repairHull() {
-    if (!canUseSelectedAction() || !selectedUnit) {
+  function repairHull(unitId: string) {
+    if (gameState !== "active") {
       return;
     }
 
-    const repairAmount = getRepairAmount(selectedUnit);
+    const repairer = crew.find((unit) => unit.id === unitId);
+
+    if (!repairer) {
+      addLog("Инженерная карта больше недоступна.", "bad");
+      return;
+    }
+
+    if (repairer.hasActed) {
+      addLog(`${repairer.name} уже использовал рабочее действие в этой смене.`, "bad");
+      return;
+    }
+
+    const repairAmount = getRepairAmount(repairer);
 
     if (repairAmount <= 0) {
-      addLog("У выбранной карты нет инженерного навыка.", "bad");
+      addLog("У этой карты нет инженерного навыка.", "bad");
       return;
     }
 
@@ -1112,8 +1147,15 @@ export default function Home() {
 
     const restored = Math.min(repairAmount, MAX_HULL - hull);
     setHull((current) => Math.min(MAX_HULL, current + repairAmount));
-    updateUnits(markSelectedActionUsed(units));
-    addLog(`${selectedUnit.name} возвращает кораблю ${restored} прочности.`, "good");
+    const nextUnits = units.map((unit) => {
+      if (unit.id !== repairer.id) {
+        return unit;
+      }
+
+      return { ...unit, hasActed: true };
+    });
+    updateUnits(nextUnits);
+    addLog(`${repairer.name} возвращает кораблю ${restored} прочности.`, "good");
   }
 
   function endShift() {
@@ -1255,30 +1297,12 @@ export default function Home() {
     }
   }
 
-  let selectedName = "No active crew";
-  let selectedTitle = "Экипаж недоступен";
-  let selectedStats = { hp: "0/0", attack: 0, range: 0, speed: 0, heal: 0, repair: 0 };
-  let selectedTempo = "ACT unavailable · MOVE unavailable";
-  let repairAmount = 0;
-
-  if (selectedUnit) {
-    selectedName = selectedUnit.name;
-    selectedTitle = `${selectedUnit.title} · ${getZoneName(selectedUnit.zone)} / ${getRankLabel(selectedUnit.rank)}`;
-    selectedStats = {
-      hp: `${selectedUnit.hp}/${selectedUnit.maxHp}`,
-      attack: selectedUnit.attack,
-      range: selectedUnit.range,
-      speed: selectedUnit.speed,
-      heal: selectedUnit.heal,
-      repair: selectedUnit.repair,
-    };
-    selectedTempo = getUnitTempoLabel(selectedUnit);
-    repairAmount = getRepairAmount(selectedUnit);
-  }
-
   const totalAttack = crew.reduce((sum, unit) => sum + unit.attack, 0);
   const totalHeal = crew.reduce((sum, unit) => sum + unit.heal, 0);
   const totalRepair = crew.reduce((sum, unit) => sum + unit.repair, 0);
+  const totalEnemyAttack = aliens.reduce((sum, unit) => sum + unit.attack, 0);
+  const totalEnemyArmor = aliens.reduce((sum, unit) => sum + unit.armor, 0);
+  const totalEnemySiege = aliens.reduce((sum, unit) => sum + unit.siege, 0);
   const readyActions = crew.filter((unit) => !unit.hasActed).length;
   const readyMoves = crew.filter((unit) => !unit.hasMoved).length;
   const logGroups = groupLogEntries(logEntries);
@@ -1306,53 +1330,49 @@ export default function Home() {
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#f4f7fb,_#e7edf5_45%,_#d9e2ef)] px-3 py-4 text-slate-900 sm:px-5 lg:px-7" data-theme-surface>
       <div className="mx-auto flex w-full max-w-[1560px] flex-col gap-4">
         <section className="rounded-[26px] border border-slate-200 bg-white/85 p-4 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur sm:p-5">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">Station Desk</span>
-                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Shift {shift}</span>
-                <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-mono text-[10px] text-slate-400">BOARD-{String(scenarioSeed).slice(-5)}</span>
-                <Link className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700 transition hover:bg-blue-100" href="/rules">Правила</Link>
-                <ThemeToggle />
-              </div>
-              <h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] text-slate-950 sm:text-4xl">Internal Defense Workflow</h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Тактическая доска станции: сближай карточки, держи линию, лечи экипаж и ремонтируй корабль до конца смены.</p>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">Station Desk</span>
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Shift {shift}</span>
+              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-mono text-[10px] text-slate-400">BOARD-{String(scenarioSeed).slice(-5)}</span>
+              <Link className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700 transition hover:bg-blue-100" href="/rules">Правила</Link>
+              <ThemeToggle />
             </div>
-
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[560px]">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Ready</p><p className="mt-1 text-2xl font-semibold">{readyActions}/{readyMoves}</p><p className="mt-1 text-[10px] text-slate-400">ACT / MOVE</p></div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Hull</p><p className="mt-1 text-2xl font-semibold">{hull}/{MAX_HULL}</p></div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Crew</p><p className="mt-1 text-2xl font-semibold">{crew.length}</p></div>
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3"><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-rose-500">Threats</p><p className="mt-1 text-2xl font-semibold text-rose-700">{aliens.length}</p></div>
-            </div>
+            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] text-slate-950 sm:text-4xl">Internal Defense Workflow</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Тактическая доска станции: сближай карточки, держи линию, лечи экипаж и ремонтируй корабль до конца смены.</p>
           </div>
         </section>
 
         {gameMessage}
 
         <div className="grid gap-4 xl:grid-cols-[290px_minmax(0,1fr)]">
-          <aside className="space-y-4">
+          <aside className="space-y-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:self-start xl:overflow-y-auto xl:pr-1 [scrollbar-gutter:stable]">
             <section className="rounded-[26px] border border-slate-200 bg-white/85 p-4 shadow-[0_16px_50px_rgba(15,23,42,0.07)] backdrop-blur">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">Selected Card</p><h2 className="mt-2 truncate text-xl font-semibold text-slate-950">{selectedName}</h2><p className="mt-1 text-xs leading-5 text-slate-500">{selectedTitle}</p></div>
+              <div className="flex items-center justify-between gap-3">
+                <div><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">Operations Summary</p><h2 className="mt-1 text-lg font-semibold text-slate-950">Состояние смены</h2></div>
                 <button className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50" onClick={createNewBoard} type="button">New board</button>
               </div>
 
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                <div className="rounded-xl bg-slate-50 p-2"><p className="text-[9px] uppercase tracking-wider text-slate-400">HP</p><p className="mt-1 font-semibold">{selectedStats.hp}</p></div>
-                <div className="rounded-xl bg-slate-50 p-2"><p className="text-[9px] uppercase tracking-wider text-slate-400">ATK/RNG</p><p className="mt-1 font-semibold">{selectedStats.attack}/{selectedStats.range}</p></div>
-                <div className="rounded-xl bg-slate-50 p-2"><p className="text-[9px] uppercase tracking-wider text-slate-400">SPD</p><p className="mt-1 font-semibold">{selectedStats.speed}</p></div>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Ready</p><p className="mt-1 text-xl font-semibold">{readyActions}/{readyMoves}</p><p className="text-[9px] text-slate-400">ACT / MOVE</p></div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Hull</p><p className="mt-1 text-xl font-semibold">{hull}/{MAX_HULL}</p></div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5"><p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Crew</p><p className="mt-1 text-xl font-semibold">{crew.length}</p></div>
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-2.5"><p className="text-[9px] font-bold uppercase tracking-wider text-rose-500">Threats</p><p className="mt-1 text-xl font-semibold text-rose-700">{aliens.length}</p></div>
               </div>
 
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <div className="rounded-xl bg-slate-50 p-2"><p className="text-[9px] uppercase tracking-wider text-slate-400">MED/ENG</p><p className="mt-1 font-semibold">{selectedStats.heal}/{selectedStats.repair}</p></div>
-                <div className="rounded-xl bg-slate-50 p-2"><p className="text-[9px] uppercase tracking-wider text-slate-400">Tempo</p><p className="mt-1 text-xs font-semibold text-slate-700">{selectedTempo}</p></div>
+              <button className="mt-3 w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:bg-slate-300" disabled={gameState !== "active"} onClick={endShift} type="button">End shift</button>
+
+              <div className="mt-4 border-t border-slate-200 pt-4">
+                <div className="flex items-center justify-between gap-2 text-[10px]"><p className="font-bold uppercase tracking-[0.18em] text-slate-500">Экипаж</p><p className="text-right text-slate-500">ATK {totalAttack} · MED {totalHeal} · ENG {totalRepair}</p></div>
+                <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-slate-100"><div className="bg-slate-700" style={{ flexBasis: 0, flexGrow: totalAttack }} /><div className="bg-emerald-500" style={{ flexBasis: 0, flexGrow: totalHeal }} /><div className="bg-amber-500" style={{ flexBasis: 0, flexGrow: totalRepair }} /></div>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-slate-400"><span><i className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-slate-700" />ATK</span><span><i className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />MED</span><span><i className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />ENG</span></div>
               </div>
 
-              <button className="mt-3 w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400" disabled={repairAmount <= 0 || gameState !== "active" || !selectedUnit || selectedUnit.hasActed} onClick={repairHull} type="button">Repair hull +{repairAmount}</button>
-              <button className="mt-2 w-full rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:bg-slate-300" disabled={gameState !== "active"} onClick={endShift} type="button">End shift</button>
-
-              <div className="mt-4 border-t border-slate-100 pt-4"><div className="flex items-center justify-between text-xs text-slate-500"><span>Баланс экипажа</span><span>ATK {totalAttack} · MED {totalHeal} · ENG {totalRepair}</span></div><div className="mt-2 flex h-2 overflow-hidden rounded-full bg-slate-100"><div className="bg-slate-700" style={{ width: `${totalAttack * 1.5}%` }} /><div className="bg-emerald-500" style={{ width: `${totalHeal * 2.5}%` }} /><div className="bg-amber-500" style={{ width: `${totalRepair * 2.5}%` }} /></div></div>
+              <div className="mt-4 border-t border-slate-200 pt-4">
+                <div className="flex items-center justify-between gap-2 text-[10px]"><p className="font-bold uppercase tracking-[0.18em] text-rose-600">Пришельцы</p><p className="text-right text-slate-500">ATK {totalEnemyAttack} · ARM {totalEnemyArmor} · HULL {totalEnemySiege}</p></div>
+                <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-slate-100"><div className="bg-rose-500" style={{ flexBasis: 0, flexGrow: totalEnemyAttack }} /><div className="bg-slate-500" style={{ flexBasis: 0, flexGrow: totalEnemyArmor }} /><div className="bg-red-700" style={{ flexBasis: 0, flexGrow: totalEnemySiege }} /></div>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-slate-400"><span><i className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-rose-500" />ATK</span><span><i className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-slate-500" />ARM</span><span><i className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-red-700" />HULL</span></div>
+              </div>
             </section>
 
             <section className="rounded-[26px] border border-slate-200 bg-white/85 p-4 shadow-[0_16px_50px_rgba(15,23,42,0.07)] backdrop-blur">
@@ -1410,22 +1430,28 @@ export default function Home() {
                             <div className="space-y-2">
                               {cellCrew.map((unit) => {
                                 let canHeal = false;
+                                let canRepair = false;
+                                const unitRepairAmount = getRepairAmount(unit);
                                 if (selectedUnit && !selectedUnit.hasActed && selectedUnit.heal > 0 && unit.hp < unit.maxHp && getDistance(selectedUnit, unit) <= 1 && selectedUnit.id !== unit.id) {
                                   canHeal = true;
                                 }
 
-                                return <UnitCard canAttack={false} canHeal={canHeal} key={unit.id} onAttack={() => undefined} onHeal={() => healCrew(unit.id)} onSelect={() => setSelectedId(unit.id)} selected={selectedId === unit.id} unit={unit} />;
+                                if (!unit.hasActed && unitRepairAmount > 0 && hull < MAX_HULL && gameState === "active") {
+                                  canRepair = true;
+                                }
+
+                                return <UnitCard canAttack={false} canHeal={canHeal} canRepair={canRepair} key={unit.id} onAttack={() => undefined} onHeal={() => healCrew(unit.id)} onRepair={() => repairHull(unit.id)} onSelect={() => setSelectedId(unit.id)} repairAmount={unitRepairAmount} selected={selectedId === unit.id} unit={unit} />;
                               })}
                               {cellCrew.length === 0 && <div className="rounded-xl border border-dashed border-slate-200 p-3 text-[10px] leading-4 text-slate-400">Crew slot</div>}
                             </div>
                             <div className="space-y-2">
                               {cellAliens.map((unit) => {
                                 let canAttack = false;
-                                if (selectedUnit && !selectedUnit.hasActed && getDistance(selectedUnit, unit) <= selectedUnit.range) {
+                                if (selectedUnit && !selectedUnit.hasActed && canAttackUnit(selectedUnit, unit)) {
                                   canAttack = true;
                                 }
 
-                                return <UnitCard canAttack={canAttack} canHeal={false} key={unit.id} onAttack={() => attackAlien(unit.id)} onHeal={() => undefined} onSelect={() => undefined} selected={false} unit={unit} />;
+                                return <UnitCard canAttack={canAttack} canHeal={false} canRepair={false} key={unit.id} onAttack={() => attackAlien(unit.id)} onHeal={() => undefined} onRepair={() => undefined} onSelect={() => undefined} repairAmount={0} selected={false} unit={unit} />;
                               })}
                               {cellAliens.length === 0 && <div className="rounded-xl border border-dashed border-slate-200 p-3 text-[10px] leading-4 text-slate-400">Threat slot</div>}
                             </div>
