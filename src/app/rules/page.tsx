@@ -35,7 +35,7 @@ export default function RulesPage() {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">Station Desk</span>
-                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700">Rules v1.3</span>
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700">Rules v1.7</span>
                 <ThemeToggle />
               </div>
               <h1 className="mt-4 text-3xl font-semibold tracking-[-0.045em] text-slate-950 sm:text-5xl">Defense playbook</h1>
@@ -56,6 +56,10 @@ export default function RulesPage() {
               <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-rose-700">3 · SHIFT</p><p className="mt-2 text-xs leading-5 text-rose-900">После End shift все пришельцы двигаются и действуют по инициативе.</p></div>
             </div>
             <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">Activity Feed хранит события текущей партии, показывает новые записи сверху и разделяет их по сменам. Смерть героя выделяется как критическое событие. New board полностью очищает журнал.</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-700">Routine · L1</p><p className="mt-1 text-xs leading-5 text-slate-500">Лёгкая доска: три отсека, только передовая, случайное распределение трёх героев и трёх врагов, простой последовательный ИИ.</p></div>
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-3"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-800">Incident · L2</p><p className="mt-1 text-xs leading-5 text-blue-700">Средняя доска: случайные позиции и характеристики, 5–7 врагов и тактический ИИ с манёвром перед атакой.</p></div>
+            </div>
           </section>
 
           <section className="rounded-[26px] border border-slate-200 bg-slate-950 p-5 text-white shadow-[0_16px_50px_rgba(15,23,42,0.15)] sm:p-6">

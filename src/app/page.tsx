@@ -9,6 +9,7 @@ type ZoneId = "bridge" | "ops" | "reactor" | "breach";
 type Rank = "front" | "rear";
 type CrewRole = "assault" | "medic" | "engineer" | "ranger" | "hybrid";
 type AlienRole = "hunter" | "tank" | "shooter" | "siege";
+type Difficulty = "easy" | "medium";
 type LogTone = "neutral" | "good" | "bad" | "critical";
 
 type Unit = {
@@ -78,6 +79,10 @@ const MAX_HULL = 24;
 const zoneOrder: ZoneId[] = ["bridge", "ops", "reactor", "breach"];
 const ranks: Rank[] = ["front", "rear"];
 const boardPositions: Position[] = zoneOrder.flatMap((zone) => ranks.map((rank) => ({ zone, rank })));
+const easyBoardPositions: Position[] = zoneOrder.slice(0, 3).flatMap((zone) => [
+  { zone, rank: "front" },
+  { zone, rank: "front" },
+]);
 
 const zones: Zone[] = [
   {
@@ -310,11 +315,17 @@ function shuffle<T>(items: T[], random: () => number) {
   return shuffled;
 }
 
-function generateScenario(seed: number): Scenario {
+function generateScenario(seed: number, difficulty: Difficulty): Scenario {
   const random = createRandom(seed);
   const randomRoles: CrewRole[] = ["assault", "medic", "engineer", "ranger", "hybrid"];
-  const roles: CrewRole[] = ["medic", "engineer", "ranger", pick(randomRoles, random), pick(randomRoles, random)];
-  const crewPositions = shuffle(boardPositions, random);
+  let roles: CrewRole[] = ["medic", "engineer", "ranger", pick(randomRoles, random), pick(randomRoles, random)];
+  let crewPositions = shuffle(boardPositions, random);
+
+  if (difficulty === "easy") {
+    roles = ["assault", "medic", "engineer"];
+    crewPositions = shuffle(easyBoardPositions, random);
+  }
+
   const availableNames = shuffle(crewNames, random);
   const usedAlienNames = new Set<string>();
   const units: Unit[] = [];
@@ -344,16 +355,37 @@ function generateScenario(seed: number): Scenario {
     });
   });
 
-  const alienCount = 5 + Math.floor(random() * 3);
-  const alienPositions = shuffle(
+  let alienCount = 5 + Math.floor(random() * 3);
+  let alienPositions = shuffle(
     boardPositions.flatMap((position) => [{ ...position }, { ...position }]),
     random,
   );
 
+  if (difficulty === "easy") {
+    alienCount = 3;
+    alienPositions = shuffle(easyBoardPositions, random);
+  }
+
   for (let index = 0; index < alienCount; index += 1) {
     const template = pick(alienTemplates, random);
-    const maxHp = varyWideStat(template.maxHp, random, 5);
+    let maxHp = varyWideStat(template.maxHp, random, 5);
+    let attack = varyWideStat(template.attack, random, 1);
+    let armor = varyWideStat(template.armor, random, 0);
+    let range = varyStat(template.range, random, 1);
+    let siege = varyWideStat(template.siege, random, 1);
+    let speed = varyStat(template.speed, random, 1);
+    let initiative = varyWideStat(template.initiative, random, 1);
     const position = alienPositions[index];
+
+    if (difficulty === "easy") {
+      maxHp = varyStat(template.maxHp, random, 5);
+      attack = varyStat(template.attack, random, 1);
+      armor = varyStat(template.armor, random, 0);
+      range = template.range;
+      siege = template.siege;
+      speed = template.speed;
+      initiative = template.initiative;
+    }
 
     units.push({
       ...template,
@@ -364,12 +396,12 @@ function generateScenario(seed: number): Scenario {
       rank: position.rank,
       hp: maxHp,
       maxHp,
-      attack: varyWideStat(template.attack, random, 1),
-      armor: varyWideStat(template.armor, random, 0),
-      range: varyStat(template.range, random, 1),
-      siege: varyWideStat(template.siege, random, 1),
-      speed: varyStat(template.speed, random, 1),
-      initiative: varyWideStat(template.initiative, random, 1),
+      attack,
+      armor,
+      range,
+      siege,
+      speed,
+      initiative,
       hasActed: false,
       hasMoved: false,
     });
@@ -378,7 +410,8 @@ function generateScenario(seed: number): Scenario {
   return { seed, units };
 }
 
-const initialScenario = generateScenario(73142);
+const initialDifficulty: Difficulty = "medium";
+const initialScenario = generateScenario(73142, initialDifficulty);
 
 function getZoneIndex(zone: ZoneId) {
   return zoneOrder.indexOf(zone);
@@ -610,6 +643,64 @@ function getAlienTurn(alien: Unit, crew: Unit[], aliens: Unit[], hull: number): 
   return bestTurn;
 }
 
+function getEasyAlienTurn(alien: Unit, crew: Unit[], aliens: Unit[]): AlienTurn {
+  const targets = crew
+    .filter((unit) => canAttackUnit(alien, unit))
+    .sort((left, right) => left.hp - right.hp);
+
+  if (targets[0]) {
+    return {
+      zone: alien.zone,
+      rank: alien.rank,
+      targetId: targets[0].id,
+      attacksHull: false,
+      score: 0,
+    };
+  }
+
+  const coreDistance = getZoneIndex(alien.zone);
+  const siegeReach = Math.max(0, alien.range - 1);
+
+  if (coreDistance <= siegeReach && getAlienHullDamage(alien, alien.zone) > 0) {
+    return {
+      zone: alien.zone,
+      rank: alien.rank,
+      targetId: null,
+      attacksHull: true,
+      score: 0,
+    };
+  }
+
+  let targetPosition: Position = { zone: alien.zone, rank: alien.rank };
+
+  if (alien.rank === "rear") {
+    targetPosition = { zone: alien.zone, rank: "front" };
+  } else if (coreDistance > 0) {
+    targetPosition = { zone: zoneOrder[coreDistance - 1], rank: "front" };
+  }
+
+  const occupants = aliens.filter((unit) => unit.id !== alien.id && unit.zone === targetPosition.zone && unit.rank === targetPosition.rank);
+
+  if (occupants.length >= 2) {
+    targetPosition = { zone: alien.zone, rank: alien.rank };
+  }
+
+  return {
+    ...targetPosition,
+    targetId: null,
+    attacksHull: false,
+    score: 0,
+  };
+}
+
+function getBoardTabClass(tabDifficulty: Difficulty, currentDifficulty: Difficulty) {
+  if (tabDifficulty === currentDifficulty) {
+    return "rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-left text-blue-800 shadow-sm transition";
+  }
+
+  return "rounded-lg border border-transparent px-3 py-2 text-left text-slate-500 transition hover:border-slate-200 hover:bg-white";
+}
+
 function getNextLogId(log: LogEntry[]) {
   if (log.length === 0) {
     return 1;
@@ -804,7 +895,9 @@ function UnitCard({
   unit,
   selected,
   canAttack,
+  attackDamage,
   canHeal,
+  healAmount,
   canRepair,
   repairAmount,
   onSelect,
@@ -815,7 +908,9 @@ function UnitCard({
   unit: Unit;
   selected: boolean;
   canAttack: boolean;
+  attackDamage: number;
   canHeal: boolean;
+  healAmount: number;
   canRepair: boolean;
   repairAmount: number;
   onSelect: () => void;
@@ -844,7 +939,7 @@ function UnitCard({
         onClick={onAttack}
         type="button"
       >
-        Атаковать
+        Атаковать −{attackDamage}
       </button>
     );
   }
@@ -856,7 +951,7 @@ function UnitCard({
         onClick={onHeal}
         type="button"
       >
-        Лечить
+        Лечить +{healAmount}
       </button>
     );
   }
@@ -921,6 +1016,7 @@ function UnitCard({
 
 export default function Home() {
   const [units, setUnits] = useState<Unit[]>(initialScenario.units);
+  const [difficulty, setDifficulty] = useState<Difficulty>(initialDifficulty);
   const [selectedId, setSelectedId] = useState(initialScenario.units[0].id);
   const [shift, setShift] = useState(1);
   const [hull, setHull] = useState(MAX_HULL);
@@ -1183,7 +1279,14 @@ export default function Home() {
         break;
       }
 
-      const turn = getAlienTurn(currentAlien, currentCrew, currentAliens, Math.max(0, hull - hullDamage));
+      let turn: AlienTurn;
+
+      if (difficulty === "easy") {
+        turn = getEasyAlienTurn(currentAlien, currentCrew, currentAliens);
+      } else {
+        turn = getAlienTurn(currentAlien, currentCrew, currentAliens, Math.max(0, hull - hullDamage));
+      }
+
       const moved = turn.zone !== currentAlien.zone || turn.rank !== currentAlien.rank;
       nextUnits = nextUnits.map((unit) => {
         if (unit.id !== currentAlien.id) {
@@ -1281,12 +1384,13 @@ export default function Home() {
     });
   }
 
-  function createNewBoard() {
+  function resetBoard(nextDifficulty: Difficulty) {
     const seed = Math.floor(Date.now() + Math.random() * 100000);
-    const scenario = generateScenario(seed);
+    const scenario = generateScenario(seed, nextDifficulty);
     const firstCrew = scenario.units.find((unit) => unit.team === "crew");
 
     setUnits(scenario.units);
+    setDifficulty(nextDifficulty);
     setScenarioSeed(seed);
     setShift(1);
     setHull(MAX_HULL);
@@ -1295,6 +1399,18 @@ export default function Home() {
     if (firstCrew) {
       setSelectedId(firstCrew.id);
     }
+  }
+
+  function createNewBoard() {
+    resetBoard(difficulty);
+  }
+
+  function changeDifficulty(nextDifficulty: Difficulty) {
+    if (nextDifficulty === difficulty) {
+      return;
+    }
+
+    resetBoard(nextDifficulty);
   }
 
   const totalAttack = crew.reduce((sum, unit) => sum + unit.attack, 0);
@@ -1306,6 +1422,16 @@ export default function Home() {
   const readyActions = crew.filter((unit) => !unit.hasActed).length;
   const readyMoves = crew.filter((unit) => !unit.hasMoved).length;
   const logGroups = groupLogEntries(logEntries);
+  let visibleZones = zones;
+  let visibleRanks = ranks;
+  let boardGridClass = "grid min-w-[1120px] grid-cols-4 gap-3";
+
+  if (difficulty === "easy") {
+    visibleZones = zones.filter((zone) => zone.id !== "breach");
+    visibleRanks = ["front"];
+    boardGridClass = "grid min-w-[840px] grid-cols-3 gap-3";
+  }
+
   let gameMessage = null;
 
   if (gameState === "won") {
@@ -1337,6 +1463,11 @@ export default function Home() {
               <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-mono text-[10px] text-slate-400">BOARD-{String(scenarioSeed).slice(-5)}</span>
               <Link className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700 transition hover:bg-blue-100" href="/rules">Правила</Link>
               <ThemeToggle />
+            </div>
+            <div className="mt-4 flex w-fit flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1">
+              <span className="px-2 text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">Boards</span>
+              <button aria-pressed={difficulty === "easy"} className={getBoardTabClass("easy", difficulty)} onClick={() => changeDifficulty("easy")} type="button"><span className="block text-[10px] font-bold uppercase tracking-[0.12em]">Routine</span><span className="mt-0.5 block text-[9px] opacity-70">L1 · Standard queue</span></button>
+              <button aria-pressed={difficulty === "medium"} className={getBoardTabClass("medium", difficulty)} onClick={() => changeDifficulty("medium")} type="button"><span className="block text-[10px] font-bold uppercase tracking-[0.12em]">Incident</span><span className="mt-0.5 block text-[9px] opacity-70">L2 · Priority queue</span></button>
             </div>
             <h1 className="mt-3 text-3xl font-semibold tracking-[-0.045em] text-slate-950 sm:text-4xl">Internal Defense Workflow</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Тактическая доска станции: сближай карточки, держи линию, лечи экипаж и ремонтируй корабль до конца смены.</p>
@@ -1400,15 +1531,15 @@ export default function Home() {
             </div>
 
             <div className="mt-4 overflow-x-auto pb-2">
-              <div className="grid min-w-[1120px] grid-cols-4 gap-3">
-                {zones.map((zone) => (
+              <div className={boardGridClass}>
+                {visibleZones.map((zone) => (
                   <div className="rounded-[22px] border border-slate-200 bg-slate-50/80" key={zone.id}>
                     <div className="border-b border-slate-200 p-3">
                       <div className="flex items-center justify-between gap-2"><div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${zone.accent}`} /><p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{zone.shortName}</p><span className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-bold text-slate-500">DEF {zone.hullDefense}</span></div><span className="rounded-full bg-white px-2 py-1 text-[10px] text-slate-400">{units.filter((unit) => unit.zone === zone.id).length} cards</span></div>
                       <h3 className="mt-2 font-semibold text-slate-950">{zone.name}</h3><p className="mt-1 min-h-10 text-xs leading-5 text-slate-500">{zone.description}</p>
                     </div>
 
-                    {(["front", "rear"] as Rank[]).map((rank) => {
+                    {visibleRanks.map((rank) => {
                       const cellCrew = sortUnits(crew.filter((unit) => unit.zone === zone.id && unit.rank === rank));
                       const cellAliens = sortUnits(aliens.filter((unit) => unit.zone === zone.id && unit.rank === rank));
                       let cellClass = "border-t border-slate-200 p-3 first:border-t-0";
@@ -1431,27 +1562,31 @@ export default function Home() {
                               {cellCrew.map((unit) => {
                                 let canHeal = false;
                                 let canRepair = false;
+                                let healAmount = 0;
                                 const unitRepairAmount = getRepairAmount(unit);
                                 if (selectedUnit && !selectedUnit.hasActed && selectedUnit.heal > 0 && unit.hp < unit.maxHp && getDistance(selectedUnit, unit) <= 1 && selectedUnit.id !== unit.id) {
                                   canHeal = true;
+                                  healAmount = Math.min(selectedUnit.heal, unit.maxHp - unit.hp);
                                 }
 
                                 if (!unit.hasActed && unitRepairAmount > 0 && hull < MAX_HULL && gameState === "active") {
                                   canRepair = true;
                                 }
 
-                                return <UnitCard canAttack={false} canHeal={canHeal} canRepair={canRepair} key={unit.id} onAttack={() => undefined} onHeal={() => healCrew(unit.id)} onRepair={() => repairHull(unit.id)} onSelect={() => setSelectedId(unit.id)} repairAmount={unitRepairAmount} selected={selectedId === unit.id} unit={unit} />;
+                                return <UnitCard attackDamage={0} canAttack={false} canHeal={canHeal} canRepair={canRepair} healAmount={healAmount} key={unit.id} onAttack={() => undefined} onHeal={() => healCrew(unit.id)} onRepair={() => repairHull(unit.id)} onSelect={() => setSelectedId(unit.id)} repairAmount={unitRepairAmount} selected={selectedId === unit.id} unit={unit} />;
                               })}
                               {cellCrew.length === 0 && <div className="rounded-xl border border-dashed border-slate-200 p-3 text-[10px] leading-4 text-slate-400">Crew slot</div>}
                             </div>
                             <div className="space-y-2">
                               {cellAliens.map((unit) => {
                                 let canAttack = false;
+                                let attackDamage = 0;
                                 if (selectedUnit && !selectedUnit.hasActed && canAttackUnit(selectedUnit, unit)) {
                                   canAttack = true;
+                                  attackDamage = clampDamage(selectedUnit.attack - unit.armor);
                                 }
 
-                                return <UnitCard canAttack={canAttack} canHeal={false} canRepair={false} key={unit.id} onAttack={() => attackAlien(unit.id)} onHeal={() => undefined} onRepair={() => undefined} onSelect={() => undefined} repairAmount={0} selected={false} unit={unit} />;
+                                return <UnitCard attackDamage={attackDamage} canAttack={canAttack} canHeal={false} canRepair={false} healAmount={0} key={unit.id} onAttack={() => attackAlien(unit.id)} onHeal={() => undefined} onRepair={() => undefined} onSelect={() => undefined} repairAmount={0} selected={false} unit={unit} />;
                               })}
                               {cellAliens.length === 0 && <div className="rounded-xl border border-dashed border-slate-200 p-3 text-[10px] leading-4 text-slate-400">Threat slot</div>}
                             </div>
